@@ -1,4 +1,1 @@
-use anchor_lang::prelude::*;
-
-#[constant]
-pub const SEED: &str = "anchor";
+pub const INVOICE_SEED: &[u8] = b"invoice";
