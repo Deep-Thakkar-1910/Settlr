@@ -69,6 +69,26 @@ export async function fetchFreelancerInvoices(
   );
 }
 
+export async function fetchClientInvoices(
+  client: PublicKey,
+  program: Program
+): Promise<Array<InvoiceAccount>> {
+  const accounts = await invoiceAccountClient(program).all([
+    {
+      memcmp: {
+        offset: 8 + 32, // skip discriminator + freelancer; client pubkey follows
+        bytes: client.toBase58(),
+      },
+    },
+  ]);
+  return accounts.map(
+    (item: { publicKey: PublicKey; account: InvoiceAccount["account"] }) => ({
+      publicKey: item.publicKey,
+      account: item.account,
+    })
+  );
+}
+
 export async function getNextInvoiceId(freelancer: PublicKey, program: Program): Promise<BN> {
   const invoices = await fetchFreelancerInvoices(freelancer, program);
   return new BN(invoices.length);
