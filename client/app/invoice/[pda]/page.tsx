@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { PayButton } from "@/components/PayButton";
 import {
   fetchInvoice,
+  fetchUsernameByOwner,
   formatUsdc,
   getProgram,
   isInvoiceExpired,
@@ -38,6 +39,8 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [freelancerName, setFreelancerName] = useState<string | null>(null);
+  const [clientName, setClientName] = useState<string | null>(null);
 
   const loadInvoice = useCallback(async () => {
     if (!wallet) return;
@@ -48,6 +51,12 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
       const program = getProgram(wallet, connection);
       const loaded = await fetchInvoice(pdaPubkey, program);
       setInvoice(loaded);
+      const [f, c] = await Promise.all([
+        fetchUsernameByOwner(loaded.account.freelancer, program).catch(() => null),
+        fetchUsernameByOwner(loaded.account.client, program).catch(() => null),
+      ]);
+      setFreelancerName(f?.account.name ?? null);
+      setClientName(c?.account.name ?? null);
     } catch {
       setError("Invoice not found or could not be loaded.");
     } finally {
@@ -162,15 +171,33 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-zinc-500 text-xs mb-1">From (freelancer)</p>
-                <p className="text-zinc-300 font-mono text-xs break-all">
-                  {truncatePubkey(invoice.account.freelancer)}
-                </p>
+                {freelancerName ? (
+                  <>
+                    <p className="text-zinc-300 text-xs">@{freelancerName}</p>
+                    <p className="text-zinc-600 font-mono text-xs break-all">
+                      {truncatePubkey(invoice.account.freelancer)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-zinc-300 font-mono text-xs break-all">
+                    {truncatePubkey(invoice.account.freelancer)}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-zinc-500 text-xs mb-1">To (client)</p>
-                <p className="text-zinc-300 font-mono text-xs break-all">
-                  {truncatePubkey(invoice.account.client)}
-                </p>
+                {clientName ? (
+                  <>
+                    <p className="text-zinc-300 text-xs">@{clientName}</p>
+                    <p className="text-zinc-600 font-mono text-xs break-all">
+                      {truncatePubkey(invoice.account.client)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-zinc-300 font-mono text-xs break-all">
+                    {truncatePubkey(invoice.account.client)}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-zinc-500 text-xs mb-1">Deadline</p>
@@ -219,7 +246,9 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
                 This invoice is not addressed to your wallet.
               </p>
               <p className="text-zinc-600 text-xs mt-1">
-                Connect the client wallet ({truncatePubkey(invoice.account.client)}) to pay.
+                Connect the client wallet (
+                {clientName ? `@${clientName}` : truncatePubkey(invoice.account.client)}
+                ) to pay.
               </p>
             </CardContent>
           </Card>

@@ -14,4 +14,8 @@ pub enum InvoiceError {
     InvoiceExpired,
     #[msg("Amount must be greater than zero")]
     InvalidAmount,
+    #[msg("Username must be 3-32 characters")]
+    InvalidUsernameLength,
+    #[msg("Username may only contain lowercase letters, digits, and underscores")]
+    InvalidUsernameChars,
 }

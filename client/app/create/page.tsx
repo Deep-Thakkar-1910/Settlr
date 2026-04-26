@@ -8,7 +8,7 @@ import { BN } from "@coral-xyz/anchor";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -27,21 +27,30 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { deriveInvoicePda, getNextInvoiceId, getProgram } from "@/lib/anchor";
+import {
+  deriveInvoicePda,
+  fetchUsername,
+  getNextInvoiceId,
+  getProgram,
+  normalizeUsername,
+  truncatePubkey,
+} from "@/lib/anchor";
 import { openSolscan, truncateSig } from "@/lib/explorer";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   clientAddress: z.string().refine(
     (val) => {
+      const trimmed = val.trim();
+      if (/^@?[a-z0-9_]{3,32}$/.test(trimmed)) return true;
       try {
-        new PublicKey(val);
+        new PublicKey(trimmed);
         return true;
       } catch {
         return false;
       }
     },
-    { message: "Enter a valid Solana public key" }
+    { message: "Enter a valid Solana pubkey or @username" }
   ),
   amountUsdc: z
     .string()
@@ -66,6 +75,9 @@ export default function CreateInvoicePage() {
   const { connection } = useConnection();
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [resolved, setResolved] = useState<{ pubkey: PublicKey; via: "username" | "pubkey" } | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -76,8 +88,63 @@ export default function CreateInvoicePage() {
     },
   });
 
+  const clientAddressValue = form.watch("clientAddress");
+  const usernameLikeRe = useMemo(() => /^@?[a-z0-9_]{3,32}$/, []);
+
+  useEffect(() => {
+    const raw = (clientAddressValue ?? "").trim();
+    setResolveError(null);
+
+    if (raw === "") {
+      setResolved(null);
+      setResolving(false);
+      return;
+    }
+
+    if (usernameLikeRe.test(raw)) {
+      if (!wallet) {
+        setResolved(null);
+        return;
+      }
+      setResolving(true);
+      const normalized = normalizeUsername(raw);
+      const handle = setTimeout(async () => {
+        try {
+          const program = getProgram(wallet, connection);
+          const found = await fetchUsername(normalized, program);
+          if (found) {
+            setResolved({ pubkey: found.account.owner, via: "username" });
+            setResolveError(null);
+          } else {
+            setResolved(null);
+            setResolveError(`No wallet registered as @${normalized}`);
+          }
+        } catch {
+          setResolved(null);
+          setResolveError("Lookup failed");
+        } finally {
+          setResolving(false);
+        }
+      }, 300);
+      return () => clearTimeout(handle);
+    }
+
+    try {
+      const pk = new PublicKey(raw);
+      setResolved({ pubkey: pk, via: "pubkey" });
+      setResolving(false);
+    } catch {
+      setResolved(null);
+      setResolving(false);
+    }
+  }, [clientAddressValue, wallet, connection, usernameLikeRe]);
+
   const onSubmit = async (values: FormValues) => {
     if (!wallet || !publicKey) return;
+    if (!resolved) {
+      toast.error("Recipient could not be resolved");
+      return;
+    }
     setSubmitting(true);
     try {
       const program = getProgram(wallet, connection);
@@ -90,7 +157,7 @@ export default function CreateInvoicePage() {
           new BN(Math.round(parseFloat(values.amountUsdc) * 1_000_000)),
           values.description,
           new BN(Math.floor(values.deadline.getTime() / 1000)),
-          new PublicKey(values.clientAddress)
+          resolved.pubkey
         )
         .accounts({ freelancer: publicKey })
         .rpc({ skipPreflight: true, commitment: "confirmed", maxRetries: 3 });
@@ -151,14 +218,34 @@ export default function CreateInvoicePage() {
               name="clientAddress"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-300">Client wallet address</FormLabel>
+                  <FormLabel className="text-zinc-300">Client wallet or @username</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Enter Solana public key"
+                      placeholder="@alice or Solana public key"
                       className="bg-zinc-900 border-zinc-700 text-white placeholder:text-zinc-600 font-mono text-sm"
                       {...field}
                     />
                   </FormControl>
+                  {resolving && (
+                    <FormDescription className="text-zinc-500 text-xs">
+                      Looking up {field.value.trim()}…
+                    </FormDescription>
+                  )}
+                  {!resolving && resolved && resolved.via === "username" && (
+                    <FormDescription className="text-emerald-400 text-xs font-mono">
+                      Resolves to: {truncatePubkey(resolved.pubkey)}
+                    </FormDescription>
+                  )}
+                  {!resolving && resolved && resolved.via === "pubkey" && (
+                    <FormDescription className="text-zinc-500 text-xs font-mono">
+                      Pubkey: {truncatePubkey(resolved.pubkey)}
+                    </FormDescription>
+                  )}
+                  {!resolving && resolveError && (
+                    <FormDescription className="text-red-400 text-xs">
+                      {resolveError}
+                    </FormDescription>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -257,7 +344,7 @@ export default function CreateInvoicePage() {
 
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || resolving || !resolved}
               className="w-full bg-white text-black hover:bg-zinc-200 font-semibold"
             >
               {submitting ? "Creating invoice…" : "Create Invoice"}

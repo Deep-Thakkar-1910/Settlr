@@ -19,3 +19,12 @@ pub struct Invoice {
     pub created_at: i64,
     pub bump: u8,
 }
+
+#[derive(InitSpace)]
+#[account]
+pub struct Username {
+    pub owner: Pubkey,
+    #[max_len(32)]
+    pub name: String,
+    pub bump: u8,
+}

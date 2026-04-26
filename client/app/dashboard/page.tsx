@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ClaimCard } from "@/components/ClaimButton";
+import { UsernameRegisterCard } from "@/components/UsernameRegisterCard";
 import {
+  fetchAllUsernames,
   fetchFreelancerInvoices,
+  fetchUsernameByOwner,
   formatUsdc,
   getProgram,
   isInvoiceExpired,
@@ -19,11 +22,19 @@ import {
   type InvoiceAccount,
 } from "@/lib/anchor";
 
-function InvoiceRow({ invoice }: { invoice: InvoiceAccount }) {
+function InvoiceRow({
+  invoice,
+  nameMap,
+}: {
+  invoice: InvoiceAccount;
+  nameMap: Map<string, string>;
+}) {
   const paid = isInvoicePaid(invoice.account.status);
   const expired = !paid && isInvoiceExpired(invoice.account.deadline);
   const pending = !paid && !expired;
   const deadlineDate = new Date(invoice.account.deadline.toNumber() * 1000);
+  const clientKey = invoice.account.client.toBase58();
+  const clientName = nameMap.get(clientKey);
 
   return (
     <div className="flex items-center justify-between py-4 gap-4">
@@ -32,7 +43,7 @@ function InvoiceRow({ invoice }: { invoice: InvoiceAccount }) {
           {invoice.account.description}
         </p>
         <p className="text-xs text-zinc-500 font-mono">
-          {truncatePubkey(invoice.account.client)}
+          {clientName ? `@${clientName}` : truncatePubkey(invoice.account.client)}
         </p>
       </div>
       <div className="text-right space-y-0.5 shrink-0">
@@ -78,6 +89,8 @@ export default function DashboardPage() {
 
   const [invoices, setInvoices] = useState<Array<InvoiceAccount>>([]);
   const [loading, setLoading] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [nameMap, setNameMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (!wallet || !publicKey) return;
@@ -85,12 +98,26 @@ export default function DashboardPage() {
     setLoading(true);
     const program = getProgram(wallet, connection);
 
+    fetchUsernameByOwner(publicKey, program)
+      .then((u) => setUsername(u?.account.name ?? null))
+      .catch(() => setUsername(null));
+
     fetchFreelancerInvoices(publicKey, program)
-      .then((results) => {
+      .then(async (results) => {
         const sorted = results.sort(
           (a, b) => b.account.createdAt.toNumber() - a.account.createdAt.toNumber()
         );
         setInvoices(sorted);
+        try {
+          const allNames = await fetchAllUsernames(program);
+          const map = new Map<string, string>();
+          for (const u of allNames) {
+            map.set(u.account.owner.toBase58(), u.account.name);
+          }
+          setNameMap(map);
+        } catch (e) {
+          console.error("fetchAllUsernames failed", e);
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -135,7 +162,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
             <p className="text-sm text-zinc-500 font-mono mt-0.5">
-              {truncatePubkey(publicKey)}
+              {username ? `@${username}` : truncatePubkey(publicKey)}
             </p>
           </div>
           <Button asChild className="bg-white text-black hover:bg-zinc-200">
@@ -166,6 +193,8 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        <UsernameRegisterCard onRegistered={setUsername} />
+
         <ClaimCard />
 
         <Separator className="bg-zinc-800" />
@@ -189,7 +218,11 @@ export default function DashboardPage() {
             {!loading && invoices.length > 0 && (
               <div className="divide-y divide-zinc-800">
                 {invoices.map((invoice) => (
-                  <InvoiceRow key={invoice.publicKey.toBase58()} invoice={invoice} />
+                  <InvoiceRow
+                    key={invoice.publicKey.toBase58()}
+                    invoice={invoice}
+                    nameMap={nameMap}
+                  />
                 ))}
               </div>
             )}

@@ -36,4 +36,11 @@ pub mod settlr {
     pub fn pay_invoice(context: Context<PayInvoiceAccountConstraints>) -> Result<()> {
         instructions::pay_invoice::pay_invoice(context)
     }
+
+    pub fn register_username(
+        context: Context<RegisterUsernameAccountConstraints>,
+        name: String,
+    ) -> Result<()> {
+        instructions::register_username::register_username(context, name)
+    }
 }

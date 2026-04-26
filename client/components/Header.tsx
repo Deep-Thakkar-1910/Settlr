@@ -1,9 +1,10 @@
 "use client";
 
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { ChevronDown, LogOut, Wallet } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,11 +13,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { truncatePubkey } from "@/lib/anchor";
+import { fetchUsernameByOwner, getProgram, truncatePubkey } from "@/lib/anchor";
 
 function WalletButton() {
   const { publicKey, disconnect, connected } = useWallet();
+  const wallet = useAnchorWallet();
+  const { connection } = useConnection();
   const { setVisible } = useWalletModal();
+  const [username, setUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!wallet || !publicKey) {
+      setUsername(null);
+      return;
+    }
+    const program = getProgram(wallet, connection);
+    fetchUsernameByOwner(publicKey, program)
+      .then((u) => setUsername(u?.account.name ?? null))
+      .catch(() => setUsername(null));
+  }, [wallet, publicKey, connection]);
 
   if (!connected || !publicKey) {
     return (
@@ -41,7 +56,7 @@ function WalletButton() {
           className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white gap-2 font-mono"
         >
           <Wallet className="h-3.5 w-3.5" />
-          {truncatePubkey(publicKey)}
+          {username ? `@${username}` : truncatePubkey(publicKey)}
           <ChevronDown className="h-3 w-3 text-zinc-500" />
         </Button>
       </DropdownMenuTrigger>

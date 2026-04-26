@@ -107,6 +107,61 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "register_username",
+      "discriminator": [
+        134,
+        54,
+        123,
+        181,
+        28,
+        151,
+        36,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "username",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  110,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "name"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -121,6 +176,19 @@
         104,
         18,
         164
+      ]
+    },
+    {
+      "name": "Username",
+      "discriminator": [
+        149,
+        84,
+        41,
+        80,
+        177,
+        203,
+        232,
+        168
       ]
     }
   ],
@@ -182,6 +250,16 @@
       "code": 6005,
       "name": "InvalidAmount",
       "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidUsernameLength",
+      "msg": "Username must be 3-32 characters"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidUsernameChars",
+      "msg": "Username may only contain lowercase letters, digits, and underscores"
     }
   ],
   "types": [
@@ -279,6 +357,26 @@
           },
           {
             "name": "Paid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Username",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

@@ -8,6 +8,7 @@ const PROGRAM_ID = new PublicKey(
 );
 
 const INVOICE_SEED = Buffer.from("invoice");
+const USERNAME_SEED = Buffer.from("username");
 
 export type InvoiceStatus = { pending: Record<string, never> } | { paid: Record<string, never> };
 
@@ -93,4 +94,66 @@ export function formatUsdc(lamports: BN): string {
 export function truncatePubkey(pubkey: PublicKey | string): string {
   const str = pubkey.toString();
   return `${str.slice(0, 4)}…${str.slice(-4)}`;
+}
+
+export interface UsernameAccount {
+  publicKey: PublicKey;
+  account: { owner: PublicKey; name: string; bump: number };
+}
+
+export function deriveUsernamePda(name: string): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [USERNAME_SEED, Buffer.from(name)],
+    PROGRAM_ID
+  );
+}
+
+function usernameAccountClient(program: Program) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (program.account as any).username;
+}
+
+export async function fetchUsername(
+  name: string,
+  program: Program
+): Promise<UsernameAccount | null> {
+  const [pda] = deriveUsernamePda(name);
+  try {
+    const account = await usernameAccountClient(program).fetch(pda);
+    return { publicKey: pda, account: account as UsernameAccount["account"] };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchUsernameByOwner(
+  owner: PublicKey,
+  program: Program
+): Promise<UsernameAccount | null> {
+  const accounts = await usernameAccountClient(program).all([
+    { memcmp: { offset: 8, bytes: owner.toBase58() } },
+  ]);
+  if (accounts.length === 0) return null;
+  return {
+    publicKey: accounts[0].publicKey,
+    account: accounts[0].account as UsernameAccount["account"],
+  };
+}
+
+export async function fetchAllUsernames(program: Program): Promise<UsernameAccount[]> {
+  const accounts = await usernameAccountClient(program).all();
+  return accounts.map(
+    (a: { publicKey: PublicKey; account: UsernameAccount["account"] }) => ({
+      publicKey: a.publicKey,
+      account: a.account,
+    })
+  );
+}
+
+export function isValidUsername(name: string): boolean {
+  return /^[a-z0-9_]{3,32}$/.test(name);
+}
+
+export function normalizeUsername(input: string): string {
+  return input.trim().toLowerCase().replace(/^@/, "");
 }
