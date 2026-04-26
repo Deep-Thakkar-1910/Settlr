@@ -1,15 +1,27 @@
 "use client";
 
-import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
+import {
+  useAnchorWallet,
+  useConnection,
+  useWallet,
+} from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ArrowRight, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PayButton } from "@/components/PayButton";
+import { downloadInvoicePdf } from "@/lib/pdf";
 import {
   fetchInvoice,
   fetchUsernameByOwner,
@@ -44,19 +56,20 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
 
   const loadInvoice = useCallback(async () => {
     if (!wallet) return;
-    setLoading(true);
-    setError(null);
     try {
       const pdaPubkey = new PublicKey(pda);
       const program = getProgram(wallet, connection);
       const loaded = await fetchInvoice(pdaPubkey, program);
-      setInvoice(loaded);
       const [f, c] = await Promise.all([
-        fetchUsernameByOwner(loaded.account.freelancer, program).catch(() => null),
+        fetchUsernameByOwner(loaded.account.freelancer, program).catch(
+          () => null,
+        ),
         fetchUsernameByOwner(loaded.account.client, program).catch(() => null),
       ]);
+      setInvoice(loaded);
       setFreelancerName(f?.account.name ?? null);
       setClientName(c?.account.name ?? null);
+      setError(null);
     } catch {
       setError("Invoice not found or could not be loaded.");
     } finally {
@@ -65,7 +78,15 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
   }, [wallet, connection, pda]);
 
   useEffect(() => {
-    if (wallet) loadInvoice();
+    if (!wallet) return;
+    let cancelled = false;
+    void (async () => {
+      await loadInvoice();
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [wallet, loadInvoice]);
 
   const copyLink = () => {
@@ -127,14 +148,32 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
       <div className="w-full max-w-lg space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-white">Invoice</h1>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={copyLink}
-            className="border-zinc-700 text-zinc-400 hover:bg-zinc-900"
-          >
-            {copied ? "Copied!" : "Copy link"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadInvoicePdf({
+                  pda,
+                  invoice: invoice.account,
+                  freelancerName,
+                  clientName,
+                })
+              }
+              className="border-zinc-700 text-zinc-400 hover:bg-zinc-900"
+            >
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyLink}
+              className="border-zinc-700 text-zinc-400 hover:bg-zinc-900"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </Button>
+          </div>
         </div>
 
         <Card className="bg-zinc-900 border-zinc-800">
@@ -170,7 +209,7 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-zinc-500 text-xs mb-1">From (freelancer)</p>
+                <p className="text-zinc-500 text-xs mb-1">Billed by</p>
                 {freelancerName ? (
                   <>
                     <p className="text-zinc-300 text-xs">@{freelancerName}</p>
@@ -185,7 +224,7 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
                 )}
               </div>
               <div>
-                <p className="text-zinc-500 text-xs mb-1">To (client)</p>
+                <p className="text-zinc-500 text-xs mb-1">Billed to</p>
                 {clientName ? (
                   <>
                     <p className="text-zinc-300 text-xs">@{clientName}</p>
@@ -201,13 +240,39 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
               </div>
               <div>
                 <p className="text-zinc-500 text-xs mb-1">Deadline</p>
-                <p className={`text-xs ${expired ? "text-red-400" : "text-zinc-300"}`}>
+                <p
+                  className={`text-xs ${expired ? "text-red-400" : "text-zinc-300"}`}
+                >
                   {deadlineDate.toLocaleDateString()}
                 </p>
               </div>
               <div>
                 <p className="text-zinc-500 text-xs mb-1">Created</p>
-                <p className="text-zinc-300 text-xs">{createdDate.toLocaleDateString()}</p>
+                <p className="text-zinc-300 text-xs">
+                  {createdDate.toLocaleDateString()}
+                </p>
+              </div>
+            </div>
+
+            <Separator className="bg-zinc-800" />
+
+            <div>
+              <p className="text-zinc-500 text-xs mb-2">Payment direction</p>
+              <div className="flex items-center gap-2 rounded-md bg-zinc-950/60 border border-zinc-800 px-3 py-2">
+                <span className="text-zinc-300 text-xs font-mono truncate">
+                  {clientName
+                    ? `@${clientName}`
+                    : truncatePubkey(invoice.account.client)}
+                </span>
+                <ArrowRight className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                <span className="text-zinc-300 text-xs font-mono truncate">
+                  {freelancerName
+                    ? `@${freelancerName}`
+                    : truncatePubkey(invoice.account.freelancer)}
+                </span>
+                <span className="ml-auto text-zinc-400 text-xs shrink-0">
+                  ${formatUsdc(invoice.account.amount)} USDC
+                </span>
               </div>
             </div>
 
@@ -247,7 +312,9 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
               </p>
               <p className="text-zinc-600 text-xs mt-1">
                 Connect the client wallet (
-                {clientName ? `@${clientName}` : truncatePubkey(invoice.account.client)}
+                {clientName
+                  ? `@${clientName}`
+                  : truncatePubkey(invoice.account.client)}
                 ) to pay.
               </p>
             </CardContent>
@@ -258,7 +325,9 @@ export default function InvoicePage({ params }: { params: Promise<Params> }) {
           <Card className="bg-red-950/30 border-red-800/40">
             <CardContent className="pt-5 text-center">
               <p className="text-red-400 font-semibold">Invoice Expired</p>
-              <p className="text-zinc-500 text-sm mt-1">The payment deadline has passed.</p>
+              <p className="text-zinc-500 text-sm mt-1">
+                The payment deadline has passed.
+              </p>
             </CardContent>
           </Card>
         )}
